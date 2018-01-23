@@ -1,0 +1,98 @@
+﻿分酒器程序架构&修改方法
+0、main()函数是程序的主函数，程序从main开始执行，执行过程中会根据不同的情况跳转至
+串口中断函数
+void  USART2_IRQHandler (void)【位于4G.c，对4G模块接收到的指令进行预处理】
+void UART4_IRQHandler(void)   【对485从机返回的指令进行预处理】
+定时器中断函数
+void TIM3_IRQHandler()【位于AuxTimer.c,主要负责按键的等待计时，按键的有效性检测】
+void TIM5_IRQHandler()【位于AuxTimer.c,主要负责温控逻辑，网络状态检测，机器状态检测】
+void TIM4_IRQHandler(void) 【位于timer.c,负责环状灯的快慢闪控制】
+
+程序首先对一些全局变量(均定义于Globalmacro.h中)初始化，然后进入main函数
+1.初始化各通信接口 
+    uart1_init(115200);	
+	uart2_init(115200);
+	Init_RS485(9600);
+2.读取机器ID，灯光和温度设定值 		 
+    STMFLASH_ReadWords(Origin,&buf,1);	
+	  if(buf!=0xAAAAAA00) 
+		{	    			
+		  STMFLASH_WriteWords(Origin,&IDAck,1);
+			STMFLASH_WriteWords(DevIDAddr,&id,1);
+			STMFLASH_WriteWords(TempAddr,&mactemp,1);			
+		}
+	  else      
+		{
+			STMFLASH_ReadWords(DevIDAddr,&readID,1);
+			printf("readID=%x\r\n",DevID);
+			Dev.ID[3]=DevID&0xff;
+			Dev.ID[2]=(DevID>>8)&0xff;
+			Dev.ID[1]=(DevID>>16)&0xff;
+			Dev.ID[0]=(DevID>>24)&0xff;
+			STMFLASH_ReadWords(LightAddr,&ledlight,1);
+			printf("ledlight=%d\r\n",ledlight);
+			CMD485[0]=1;
+			CMD485[1]=4;																							 																							 
+			CMD485[2]=ledlight;
+			RS485_SendDatas(CMD485,4); 
+			STMFLASH_ReadWords(TempAddr,&mactemp,1);
+			printf("mactemp=%d\r\n",mactemp);
+		}    	
+3.初始化按键，LED，定时器等
+            init_gpio();         
+			init_Button_LED();   
+		    J25=1;
+            GPIO1=0; 
+		    J4=1;			
+			TIM4_Int_Init(999,7199);
+			init_AuxTimer3(1);
+			init_AuxTimer5(1); 
+			bc7275_Init();   
+			cur_temp=GetTemp(1);
+			bc7275_Show_Num_Point(cur_temp);	
+			RS485_SendDatas(CMD485,4);
+4.初始化4G模块，及连接到服务器
+			connect_to_server();		 
+		    Pack4GData(&Dev,DTS); 
+		    Send4GPack(&Dev); //·¢ËÍ±¨ÎÄ	
+	        err_code=WaitAck(DTS,5,3);
+	        DealACK(err_code);
+5.进入待机状态，执行状态机
+  while(1)
+	 {    
+		 switch(Event)
+			 {
+				 case RCVSEVERCMD  :Event_RCVSEVERCMD(&MachineStatus);		break;
+				 case BUTTONPRESSED:Event_BUTTONPRESSED(&MachineStatus);	break;
+				 case WINEFLOWOK   :Event_WINEFLOWOK(&MachineStatus);		break;
+			 }
+	   if(check_temp_flag==1)  
+	    {...}    //检测温度
+	   if(compression_close==0)  
+	    {...}    //风扇压缩机控制逻辑
+	   if(ReconnectFlag==1)
+	    {...} //检测是否需要重连
+	   if((check_net_flag==1)&&(ReconnectFlag==0)&&(net_err==0)) 
+	    {...}//判断是否达到重连条件
+	
+	}
+			 
+			
+
+P.S. 修改机器ID的方法
+找到GlobalMacro.h文件，定位到
+#define   DevID  (0x32000001)  
+直接修改括号内的数字为想要更改的ID后重新编译即可
+
+
+
+
+
+
+
+
+
+
+
+
+
